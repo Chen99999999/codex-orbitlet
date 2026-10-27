@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orbitlet · 两环额度</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 26% 23%,#fafbfc,transparent 65%),linear-gradient(135deg,#f0f2f5,#e6eaee);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI",sans-serif;-webkit-font-smoothing:antialiased}.widget{width:100px;height:102px;position:relative;touch-action:none;border-radius:15px;background:linear-gradient(165deg,#ffffff,#f9fafb);border:.75px solid #dce1e6;box-shadow:0 5px 14px #24303c14,inset 0 1px 0 #ffffff;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);color:#171b20;cursor:grab;transition:border-color .3s;user-select:none}.widget:hover{border-color:#bfc7d0}.widget:active{cursor:grabbing}.arcs{position:absolute;left:2px;top:1px;width:94px;height:94px;overflow:visible}.track,.progress{fill:none;stroke-linecap:round}.track{stroke:#e9edf1}.progress{transition:stroke-dashoffset 850ms cubic-bezier(.22,.8,.2,1),stroke .6s}.five{stroke:#282e35}.week{stroke:#a1aab4}.values{position:absolute;left:50%;top:48px;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;white-space:nowrap}.value-row{display:flex;align-items:center;justify-content:center;gap:4px}.label{font-size:8.5px;color:#68717b}.label.week-label{color:#68717b}.value{font-size:13px;font-weight:400;line-height:1.2;font-variant-numeric:tabular-nums;letter-spacing:-.5px}.week-value{color:#171b20}.updated{position:absolute;left:3px;top:84px;width:92px;text-align:center;font-size:8px;line-height:10px;color:#747e88;font-variant-numeric:tabular-nums;white-space:nowrap}.menu{display:none;position:fixed;z-index:10;min-width:180px;padding:6px;border:1px solid #dce2e8;background:#fffffff7;box-shadow:0 10px 30px #25344018;border-radius:13px;color:#252b32;backdrop-filter:blur(20px);font-size:11px}.menu.open{display:block}.menu button{display:block;width:100%;border:0;color:inherit;text-align:left;background:none;font:inherit;cursor:pointer;border-radius:7px;padding:9px 11px}.menu button:hover{background:#edf1f5}.menu hr{border:0;border-top:1px solid #e4e8ed;margin:5px 8px}.widget.small{width:88px;height:90px;border-radius:13px}.widget.small .arcs{left:2.5px;top:1px;width:81px;height:81px}.widget.small .values{left:50%;top:41.5px;gap:2px}.widget.small .value-row{gap:3px}.widget.small .label{font-size:7.5px}.widget.small .value{font-size:11.5px}.widget.small .updated{left:3px;top:74px;width:80px}.widget.folded{height:56px}.widget.folded .arcs,.widget.folded .updated{display:none}.widget.folded .values{top:50%}.widget.small.folded{height:52px}.widget.small.folded .values{top:50%}.restore{position:fixed;bottom:24px;right:24px;border:1px solid #d6dde4;border-radius:50%;width:34px;height:34px;display:none;background:#ffffff;color:#434c56;font-size:19px;cursor:pointer}.restore.show{display:block}button:focus-visible,.widget:focus-visible{outline:2px solid #7e8996;outline-offset:4px}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+<section id="widget" class="widget" aria-label="正在读取官方 Codex 额度。拖动移动，右键菜单。" tabindex="0">
+<svg class="arcs" viewBox="0 0 224 224" role="img" aria-label="外环五小时剩余，内环本周剩余">
+<path class="track" stroke-width="14" d="M44.118 179.882 A96 96 0 1 1 179.882 179.882"/>
+<path id="fiveArc" class="progress five" stroke-width="14" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" style="opacity:0" d="M44.118 179.882 A96 96 0 1 1 179.882 179.882"/>
+<path class="track" stroke-width="12" d="M56.139 167.861 A79 79 0 1 1 167.861 167.861"/>
+<path id="weekArc" class="progress week" stroke-width="12" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" style="opacity:0" d="M56.139 167.861 A79 79 0 1 1 167.861 167.861"/>
+</svg>
+<div class="values"><div class="value-row"><span class="label">5h</span><span id="fiveValue" class="value">--</span></div><div class="value-row"><span class="label week-label">本周</span><span id="weekValue" class="value week-value">--</span></div></div>
+<div id="updated" class="updated">正在同步</div></section>
+<div id="menu" class="menu" role="menu" aria-label="桌面伴侣设置"><button id="refresh" role="menuitem">刷新显示</button><button id="size" role="menuitem">小号 / 标准</button><button id="fold" role="menuitem">折叠 / 展开</button><button id="hide" role="menuitem">隐藏</button></div><button class="restore" id="restore" aria-label="恢复额度小组件">◌</button>
+<script>
+(()=>{'use strict';const $=id=>document.getElementById(id),widget=$('widget'),menu=$('menu');let drag=null,last=null,busy=false;
+function update(data){
+ last=data;
+ [['five',data.fiveHourRemainingPercent],['week',data.weeklyRemainingPercent]].forEach(([key,input])=>{
+  const value=typeof input==='number'&&Number.isFinite(input)?Math.max(0,Math.min(100,input)):null;
+  $(key+'Arc').style.strokeDashoffset=100-(value??0);$(key+'Arc').style.opacity=value===null||value===0?'0':'1';$(key+'Value').textContent=value===null?'--':Math.round(value)+'%';
+  const tone=value!==null&&value<=10?'#e3aaa1':value!==null&&value<=20?'#ddbf9d':key==='five'?'#282e35':'#a1aab4';$(key+'Arc').style.stroke=tone;$(key+'Value').style.color='';
+ });
+ const time=data.updatedAtUtc?new Date(data.updatedAtUtc):null,valid=time&&!Number.isNaN(time.getTime());
+ const offline=data.syncStatus==='error'||valid&&Date.now()-time.getTime()>120000;
+ $('updated').textContent=valid?time.toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'})+(offline?' · 离线':''):data.syncStatus==='connecting'?'正在同步':'未连接';
+ $('updated').title=(valid?'官方 Codex · 更新于 '+time.toLocaleTimeString('zh-CN',{hour12:false}):'尚未成功同步')+(data.error?'\n'+data.error:'');
+ $('updated').setAttribute('aria-label',$('updated').title);
+ widget.setAttribute('aria-label',`官方 Codex 额度：5 小时剩余 ${$('fiveValue').textContent}，本周剩余 ${$('weekValue').textContent}。${$('updated').title}。拖动移动，右键菜单。`);
+}
+async function sync(){
+ if(busy)return;
+ if(location.protocol==='file:'){update({syncStatus:'error',error:'请运行 Orbitlet.exe，并从右键菜单打开实时预览。'});return;}
+ busy=true;const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000);
+ try{const response=await fetch('/api/quota',{cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('unavailable');update(await response.json());}
+ catch{update({...last,syncStatus:'error',error:'本地连接已断开；请确认 Orbitlet 正在运行。'});}
+ finally{clearTimeout(timeout);busy=false;}
+}
+function close(){menu.classList.remove('open')}
+function clamp(){if(!widget.style.position)return;const rect=widget.getBoundingClientRect();widget.style.left=Math.max(0,Math.min(parseFloat(widget.style.left),innerWidth-rect.width))+'px';widget.style.top=Math.max(0,Math.min(parseFloat(widget.style.top),innerHeight-rect.height))+'px'}
+function open(x,y){close();menu.classList.add('open');menu.style.left=Math.max(8,Math.min(x,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(y,innerHeight-menu.offsetHeight-8))+'px'}
+widget.addEventListener('contextmenu',e=>{e.preventDefault();open(e.clientX,e.clientY)});document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target))close()});
+$('refresh').onclick=()=>{sync();close()};$('size').onclick=()=>{widget.classList.toggle('small');close();clamp()};function fold(){widget.classList.toggle('folded');close();clamp()}$('fold').onclick=fold;widget.addEventListener('dblclick',fold);
+$('hide').onclick=()=>{widget.hidden=true;close();$('restore').classList.add('show');$('restore').focus()};$('restore').onclick=()=>{widget.hidden=false;$('restore').classList.remove('show');widget.focus()};
+widget.addEventListener('pointerdown',e=>{if(e.button!==0)return;const r=widget.getBoundingClientRect();drag={x:e.clientX,y:e.clientY,left:r.left,top:r.top};widget.setPointerCapture(e.pointerId)});widget.addEventListener('pointermove',e=>{if(!drag||Math.abs(e.clientX-drag.x)+Math.abs(e.clientY-drag.y)<3)return;widget.style.position='fixed';widget.style.transformOrigin='top left';widget.style.left=drag.left+e.clientX-drag.x+'px';widget.style.top=drag.top+e.clientY-drag.y+'px';clamp()});widget.addEventListener('pointerup',()=>drag=null);widget.addEventListener('pointercancel',()=>drag=null);window.addEventListener('resize',clamp);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')close();if(e.shiftKey&&e.key==='F10'){e.preventDefault();const r=widget.getBoundingClientRect();open(r.right,r.top);menu.querySelector('button').focus()}});
+sync();setInterval(()=>{if(!document.hidden)sync()},5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()});
+})();
+</script></body></html>

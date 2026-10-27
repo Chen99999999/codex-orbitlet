@@ -1,0 +1,16 @@
+dist/
+.test-output/
+*.exe
+*.pdb
+*.zip
+*.settings
+*.log
+preview-url.txt
+binding-diagnostics.json
+.env
+.env.*
+.codex/
+auth.json
+*.token
+.DS_Store
+Thumbs.db
