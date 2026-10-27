@@ -62,6 +62,6 @@ powershell -NoProfile -File .\scripts\test.ps1
 powershell -NoProfile -File .\scripts\package.ps1
 ```
 
-输出位于 `dist/windows`。48 项断言覆盖额度换算、未知值、桌面识别、CLI 排除、可见性、位置约束与窗口移动。测试使用合成数据，不需要真实账户。
+输出位于 `dist/windows`。65 项断言覆盖额度换算、未知值、桌面识别、CLI 排除、可见性、位置约束与窗口移动。原生集成测试使用自己的屏幕外窗口，检查窗口归属、移动、缩放、最小化、恢复和关闭，前台窗口身份由测试模拟；不会操作 Codex，也不需要真实账户。
 
 欢迎改进稳定性、无障碍、本地化与多显示器适配。MIT 开源。

@@ -84,7 +84,7 @@ powershell -NoProfile -File .\scripts\build.ps1
 powershell -NoProfile -File .\scripts\test.ps1
 ```
 
-The portable app is written to `dist/windows`. The 48 assertions cover quota mapping, unavailable values, desktop identity, CLI exclusion, focus visibility, docking and window bounds. Tests use synthetic data and do not need an account.
+The portable app is written to `dist/windows`. The 65 assertions cover quota mapping, unavailable values, desktop identity, CLI exclusion, focus visibility, docking and window bounds. Native integration tests create their own offscreen windows to check ownership, moving, resizing, minimizing, restoring and owner closure; foreground identity is simulated. Tests do not interact with Codex or need an account.
 
 Stop the widget and follow helper before rebuilding a directory that is currently running, or pass `-OutputDirectory dist/dev` to the build script.
 

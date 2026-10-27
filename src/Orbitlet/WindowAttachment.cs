@@ -36,13 +36,19 @@ namespace Orbitlet {
         [DllImport("user32.dll",EntryPoint="SetWindowLongW",SetLastError=true)]static extern int SetOwner32(IntPtr window,int index,int owner);
         [DllImport("user32.dll")]static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
         readonly Window widget;
+        readonly Func<IntPtr> hostOverride,foregroundOverride;
         readonly int ownPid=Process.GetCurrentProcess().Id;
         readonly Dictionary<int,Tuple<bool,DateTime>> identity=new Dictionary<int,Tuple<bool,DateTime>>();
         IntPtr host;
         DateTime nextScan;
         string lastDiagnostic;
-        public WindowAttachment(Window window) {
+        public WindowAttachment(Window window):this(window,null,null) {
+        }
+        // Native integration tests supply their own offscreen host without touching Codex.
+        internal WindowAttachment(Window window,Func<IntPtr> hostResolver,Func<IntPtr> foregroundProvider) {
             widget=window;
+            hostOverride=hostResolver;
+            foregroundOverride=foregroundProvider;
         }
         public IntPtr Host {
             get {
@@ -122,7 +128,8 @@ namespace Orbitlet {
         public void Apply(bool manuallyHidden,bool dragging,double right,double bottom) {
             IntPtr own=new WindowInteropHelper(widget).Handle;
             if(own==IntPtr.Zero)return;
-            IntPtr foreground=GetForegroundWindow(),candidate=ResolveHost(foreground);
+            IntPtr foreground=foregroundOverride!=null?foregroundOverride():GetForegroundWindow();
+            IntPtr candidate=hostOverride!=null?hostOverride():ResolveHost(foreground);
             bool changed=candidate!=host;
             if(changed) {
                 host=candidate;
