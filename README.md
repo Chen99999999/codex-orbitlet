@@ -21,17 +21,21 @@ Orbitlet is a tiny native Windows companion that attaches to the Codex desktop w
 ## Made to stay with Codex
 
 - **Attached, not scattered across your desktop.** The widget stays inside Codex, follows its position and size, and hides when another app is active or Codex is minimized.
-- **Small by design.** A 100 × 102 px standard view and an 88 × 90 px compact view. A white surface, centered text and two restrained arcs.
+- **Small by design.** A 136 × 136 px standard view and a 116 × 116 px compact view. A white surface, centered text and two restrained arcs.
+- **A quiet little cat.** It jumps onto the progress arc, climbs with traction, slides under gravity, loses contact naturally and lands with spring damping inside the square card. The 28 px cat (24 px compact) also looks around, sits, grooms, stretches and naps. Movement avoids the percentage and end-time text; folding pauses the cat, and reduced motion keeps it still.
+
 - **Real quota.** Reads the official Codex app-server's `account/rateLimits/read` method through your installed, signed-in CLI. Refreshes every 60 seconds.
-- **Honest missing states.** Unknown quota is `--`, not `0%`. A failed refresh retains the last successful values and timestamp.
+- **Honest missing states.** Unknown quota is `--`, not `0%`. A failed refresh retains the last successful values and reset times.
 - **Optional automatic start.** A small per-user helper starts Orbitlet when Codex opens. No changes to the official app, its shortcuts or configuration.
 - **No inference requests.** Monitoring does not start chats, send prompts or redeem quota resets.
+
+The silver tabby uses twelve AI-generated photographic-style pose frames, not filmed footage or a skeletal animation. The transparent atlas and frame coordinates ship locally in `assets/`; the app does not download pet images while running. The original atlas and generation prompt are kept in `web/assets/` in the source tree.
 
 > Independent community project. Orbitlet is not affiliated with, endorsed by, or an official product of OpenAI. Windows is the supported platform for this release.
 
 ## Get started
 
-1. Download **Orbitlet-v0.5.0-windows.zip** from [Releases](https://github.com/Chen99999999/codex-orbitlet/releases/latest).
+1. Download **Orbitlet-v0.6.0-windows.zip** from [Releases](https://github.com/Chen99999999/codex-orbitlet/releases/latest).
 2. Extract the whole archive to a folder you plan to keep.
 3. Make sure the official Codex app/CLI is installed and signed in with your ChatGPT account.
 4. Open Codex, then run `Orbitlet.exe`.
@@ -63,7 +67,7 @@ To stop automatic start, run `Disable-Codex-Follow.cmd` or uncheck **随 Codex �
 
 Orbitlet prefers `rateLimitsByLimitId.codex`, identifies the 300-minute and 10,080-minute windows by duration, and displays `100 - usedPercent`. It does not estimate quota from token counts or spending. API-key-only providers may not expose these subscription windows and are shown as unavailable.
 
-The timestamp is the last successful upstream read. The optional browser preview reads the same in-memory snapshot from a loopback-only service; keep Orbitlet running while viewing it. Opening `web/preview.html` directly shows an offline state, never fake production quota.
+The two footer lines show the 5h end time and weekly end date in local time. Hover to see the full dates and times. The optional browser preview reads the same in-memory snapshot from a loopback-only service; keep Orbitlet running while viewing it. Opening `web/preview.html` directly shows an offline state, never fake production quota.
 
 Reference: [official app-server rate-limit protocol](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt).
 
@@ -84,7 +88,7 @@ powershell -NoProfile -File .\scripts\build.ps1
 powershell -NoProfile -File .\scripts\test.ps1
 ```
 
-The portable app is written to `dist/windows`. The 65 assertions cover quota mapping, unavailable values, desktop identity, CLI exclusion, focus visibility, docking and window bounds. Native integration tests create their own offscreen windows to check ownership, moving, resizing, minimizing, restoring and owner closure; foreground identity is simulated. Tests do not interact with Codex or need an account.
+The portable app is written to `dist/windows`. The 65 core assertions cover quota mapping, unavailable values, desktop identity, CLI exclusion, focus visibility, docking and window bounds. Native integration tests create their own offscreen windows to check ownership, moving, resizing, minimizing, restoring and owner closure; foreground identity is simulated. Additional cat simulation checks cover 86,400 movement steps, fourteen actions, gravity/contact loss, passive sliding energy, collision bounds and 200 size switches while avoiding the text. Tests do not interact with Codex or need an account.
 
 Stop the widget and follow helper before rebuilding a directory that is currently running, or pass `-OutputDirectory dist/dev` to the build script.
 

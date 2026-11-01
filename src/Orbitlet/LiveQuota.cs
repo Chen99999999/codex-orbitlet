@@ -140,7 +140,7 @@ namespace Orbitlet {
                     process.StandardInput.AutoFlush=true;
                     await Request("initialize",new {
                         clientInfo=new {
-                            name="quiet_orbit",title="Orbitlet",version="0.5.0"
+                            name="quiet_orbit",title="Orbitlet",version="0.6.0"
                         }
                     }).ConfigureAwait(false);
                     Send(new {
@@ -311,11 +311,18 @@ namespace Orbitlet {
                 string path=parts[1].Split('?')[0];
                 if(path=="/api/quota")await Reply(stream,200,"application/json; charset=utf-8",state()).ConfigureAwait(false);
                 else if(path=="/"||path=="/preview.html")await Reply(stream,200,"text/html; charset=utf-8",File.ReadAllText(htmlPath,Encoding.UTF8)).ConfigureAwait(false);
+                else if(path=="/assets/cat-real-atlas.png"||path=="/assets/cat-real-atlas.json") {
+                    string asset=Path.Combine(Path.GetDirectoryName(htmlPath),"assets",path.EndsWith(".png",StringComparison.Ordinal)?"cat-real-atlas.png":"cat-real-atlas.json");
+                    if(File.Exists(asset))await Reply(stream,200,path.EndsWith(".png",StringComparison.Ordinal)?"image/png":"application/json; charset=utf-8",File.ReadAllBytes(asset)).ConfigureAwait(false);
+                    else await Reply(stream,404,"text/plain","Not found").ConfigureAwait(false);
+                }
                 else await Reply(stream,404,"text/plain","Not found").ConfigureAwait(false);
             }
         }
         static async Task Reply(NetworkStream stream,int code,string type,string body) {
-            byte[] bytes=Encoding.UTF8.GetBytes(body);
+            await Reply(stream,code,type,Encoding.UTF8.GetBytes(body)).ConfigureAwait(false);
+        }
+        static async Task Reply(NetworkStream stream,int code,string type,byte[] bytes) {
             string reason=code==200?"OK":code==403?"Forbidden":code==405?"Method Not Allowed":"Not Found";
             string header="HTTP/1.1 "+code+" "+reason+"\r\nContent-Type: "+type+"\r\nContent-Length: "+bytes.Length+"\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\r\n\r\n";
             byte[] head=Encoding.ASCII.GetBytes(header);

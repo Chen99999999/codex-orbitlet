@@ -18,82 +18,6 @@ using System.Windows.Media.Effects;
 using Forms=System.Windows.Forms;
 using Drawing=System.Drawing;
 namespace Orbitlet {
-    public class QuotaArcs : FrameworkElement {
-        public static readonly DependencyProperty FiveHourProperty=DependencyProperty.Register("FiveHour",typeof(double),typeof(QuotaArcs),new FrameworkPropertyMetadata(0d,FrameworkPropertyMetadataOptions.AffectsRender));
-        public static readonly DependencyProperty WeeklyProperty=DependencyProperty.Register("Weekly",typeof(double),typeof(QuotaArcs),new FrameworkPropertyMetadata(0d,FrameworkPropertyMetadataOptions.AffectsRender));
-        public double FiveHour {
-            get {
-                return (double)GetValue(FiveHourProperty);
-            }
-            set {
-                SetValue(FiveHourProperty,value);
-            }
-        }
-        public double Weekly {
-            get {
-                return (double)GetValue(WeeklyProperty);
-            }
-            set {
-                SetValue(WeeklyProperty,value);
-            }
-        }
-        public void Update(double five,double week,bool animated) {
-            double[] values= {
-                five,week
-            };
-            DependencyProperty[] props= {
-                FiveHourProperty,WeeklyProperty
-            };
-            for(int i=0; i<2; i++) {
-                if(animated) {
-                    var a=new DoubleAnimation(values[i],TimeSpan.FromMilliseconds(850)) {
-                        EasingFunction=new CubicEase {
-                            EasingMode=EasingMode.EaseOut
-                        }
-                    };
-                    BeginAnimation(props[i],a);
-                }
-                else {
-                    BeginAnimation(props[i],null);
-                    SetValue(props[i],values[i]);
-                }
-            }
-        }
-        Color Tone(double value,bool outer) {
-            return value<=10?Color.FromRgb(227,170,161):value<=20?Color.FromRgb(221,191,157):outer?Color.FromRgb(40,46,53):Color.FromRgb(161,170,180);
-        }
-        void Arc(DrawingContext dc,Point center,double radius,double percent,Pen pen) {
-            if(percent<=0)return;
-            double angle=(135+270*Math.Min(percent,100)/100)*Math.PI/180;
-            var path=new StreamGeometry();
-            using(var c=path.Open()) {
-                c.BeginFigure(new Point(center.X-radius*.70710678,center.Y+radius*.70710678),false,false);
-                c.ArcTo(new Point(center.X+Math.Cos(angle)*radius,center.Y+Math.Sin(angle)*radius),new Size(radius,radius),0,percent>66.6666667,SweepDirection.Clockwise,true,false);
-            }
-            path.Freeze();
-            dc.DrawGeometry(null,pen,path);
-        }
-        protected override void OnRender(DrawingContext dc) {
-            base.OnRender(dc);
-            Point center=new Point(112,112);
-            double[] radii= {
-                96,79
-            },values= {
-                FiveHour,Weekly
-            };
-            for(int i=0; i<2; i++) {
-                double thickness=i==0?14:12;
-                var track=new Pen(new SolidColorBrush(Color.FromRgb(233,237,241)),thickness) {
-                    StartLineCap=PenLineCap.Round,EndLineCap=PenLineCap.Round
-                };
-                Arc(dc,center,radii[i],100,track);
-                var line=new Pen(new SolidColorBrush(Tone(values[i],i==0)),thickness) {
-                    StartLineCap=PenLineCap.Round,EndLineCap=PenLineCap.Round
-                };
-                Arc(dc,center,radii[i],values[i],line);
-            }
-        }
-    }
     public class Companion : Window {
         public static bool Inspect,QuitAfterCapture,FollowCodex,Standalone;
         public static string CaptureDirectory;
@@ -104,7 +28,8 @@ namespace Orbitlet {
         Grid scene,labels;
         Border surface;
         QuotaArcs arcs;
-        TextBlock fiveCaption,weekCaption,fiveLabel,weekLabel,updated;
+        CatCompanion cat;
+        TextBlock fiveCaption,weekCaption,fiveLabel,weekLabel,resetTimes;
         Forms.NotifyIcon tray;
         Drawing.Icon trayIcon;
         bool small,folded,reduceMotion,syncing,closing,manuallyHidden,dragging,manualQuit,bindToCodex=true,standaloneTopmost=true;
@@ -152,13 +77,18 @@ namespace Orbitlet {
             scene.Children.Add(surface);
             var layout=new Canvas();
             surface.Child=layout;
+            cat=new CatCompanion();
+            Panel.SetZIndex(cat,1);
+            layout.Children.Add(cat);
             arcs=new QuotaArcs {
                 Width=224,Height=224
             };
             Canvas.SetLeft(arcs,13);
             Canvas.SetTop(arcs,8);
             layout.Children.Add(arcs);
+            cat.ContactChanged+=value=>arcs.SetContact(value);
             labels=new Grid();
+            Panel.SetZIndex(labels,2);
             labels.RowDefinitions.Add(new RowDefinition());
             labels.RowDefinitions.Add(new RowDefinition());
             layout.Children.Add(labels);
@@ -178,12 +108,13 @@ namespace Orbitlet {
             weekLabel=AddInline(secondRow,"--",13,"#171B20");
             fiveLabel.FontWeight=FontWeights.Normal;
             weekLabel.FontWeight=FontWeights.Normal;
-            updated=new TextBlock {
-                Width=224,TextAlignment=TextAlignment.Center,FontSize=10,Foreground=Brush("#747E88")
+            resetTimes=new TextBlock {
+                Width=224,TextAlignment=TextAlignment.Center,FontSize=8,LineHeight=10,LineStackingStrategy=LineStackingStrategy.BlockLineHeight,Foreground=Brush("#747E88")
             };
-            Canvas.SetLeft(updated,13);
-            Canvas.SetTop(updated,211);
-            layout.Children.Add(updated);
+            Panel.SetZIndex(resetTimes,2);
+            Canvas.SetLeft(resetTimes,13);
+            Canvas.SetTop(resetTimes,211);
+            layout.Children.Add(resetTimes);
             AutomationProperties.SetName(surface,"两环额度：外环五小时剩余，内环本周剩余");
             surface.MouseLeftButtonDown+=(s,e)=> {
                 if(e.ClickCount==2) {
@@ -211,7 +142,7 @@ namespace Orbitlet {
             Loaded+=async(s,e)=> {
                 ApplySize();
                 arcs.Update(0,0,false);
-                updated.Text="正在同步";
+                ShowResetTimes(null,null);
                 followTimer=new System.Windows.Threading.DispatcherTimer {
                     Interval=TimeSpan.FromSeconds(2)
                 };
@@ -287,13 +218,13 @@ namespace Orbitlet {
                 if(closing)return;
                 lastSnapshot=snapshot;
                 double? five=snapshot.FiveHourRemainingPercent,week=snapshot.WeeklyRemainingPercent;
+                cat.SetQuota(five??50);
                 arcs.Update(five??0,week??0,!reduceMotion&&SystemParameters.ClientAreaAnimation);
                 fiveLabel.Text=Percent(five);
                 weekLabel.Text=Percent(week);
                 fiveLabel.Foreground=Brush("#171B20");
                 weekLabel.Foreground=Brush("#171B20");
-                updated.Text=snapshot.UpdatedAtUtc.ToLocalTime().ToString("HH:mm");
-                updated.ToolTip="官方 Codex · 更新于 "+snapshot.UpdatedAtUtc.ToLocalTime().ToString("HH:mm:ss")+"\n5h / 本周（7 天窗口）剩余额度";
+                ShowResetTimes(snapshot,null);
                 previewJson=snapshot.ToJson("ok",null);
                 tray.Text="Orbitlet · 5h "+Percent(five)+" · 本周 "+Percent(week);
                 AutomationProperties.SetName(arcs,"五小时剩余 "+Percent(five)+"，本周剩余 "+Percent(week)+"，官方 Codex 实时额度");
@@ -301,8 +232,7 @@ namespace Orbitlet {
             catch(Exception ex) {
                 if(closing)return;
                 string error=ex is QuotaReadException?ex.Message:"连接暂不可用，请稍后重试";
-                updated.Text=lastSnapshot==null?"未连接":lastSnapshot.UpdatedAtUtc.ToLocalTime().ToString("HH:mm")+" · 离线";
-                updated.ToolTip=error+(lastSnapshot==null?"":"\n最后成功更新于 "+lastSnapshot.UpdatedAtUtc.ToLocalTime().ToString("HH:mm:ss"));
+                ShowResetTimes(lastSnapshot,error);
                 previewJson=lastSnapshot==null?Json.Encode(new {
                     fiveHourRemainingPercent=(double?)null,weeklyRemainingPercent=(double?)null,updatedAtUtc=(string)null,syncStatus="error",error=error,source="codex-app-server"
                 }):lastSnapshot.ToJson("error",error);
@@ -310,6 +240,23 @@ namespace Orbitlet {
             finally {
                 syncing=false;
             }
+        }
+        static string ResetTime(long? seconds,string format,string unknown) {
+            if(!seconds.HasValue||seconds.Value<0||seconds.Value>253402300799)return unknown;
+            try {
+                return new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc).AddSeconds(seconds.Value).ToLocalTime().ToString(format,CultureInfo.InvariantCulture);
+            }
+            catch(ArgumentOutOfRangeException) {
+                return unknown;
+            }
+        }
+        void ShowResetTimes(QuotaSnapshot snapshot,string error) {
+            long? five=snapshot==null?(long?)null:snapshot.FiveHourResetsAt;
+            long? week=snapshot==null?(long?)null:snapshot.WeeklyResetsAt;
+            resetTimes.Text="5h "+ResetTime(five,"HH:mm","--:--")+"\n本周 "+ResetTime(week,"MM/dd","--/--");
+            string description="5h 结束于 "+ResetTime(five,"yyyy/MM/dd HH:mm","未知")+"\n本周结束于 "+ResetTime(week,"yyyy/MM/dd HH:mm","未知")+"（本地时间）"+(error==null?"":"\n"+error);
+            resetTimes.ToolTip=description;
+            AutomationProperties.SetName(resetTimes,description);
         }
         static string Percent(double? value) {
             return value.HasValue?value.Value.ToString("0",CultureInfo.InvariantCulture)+"%":"--";
@@ -380,6 +327,8 @@ namespace Orbitlet {
             };
             reduced.Click+=(s,e)=> {
                 reduceMotion=reduced.IsChecked;
+                arcs.SetMotion(!reduceMotion&&SystemParameters.ClientAreaAnimation);
+                cat.SetMotion(!reduceMotion&&SystemParameters.ClientAreaAnimation);
                 SaveSettings();
             };
             menu.Items.Add(reduced);
@@ -431,7 +380,8 @@ namespace Orbitlet {
             ApplySize();
         }
         void ApplySize() {
-            double width=small?88:100,height=folded?(small?52:56):(small?90:102),arcScale=small?.36:.42;
+            var playground=new CatPlaygroundLayout(small);
+            double width=playground.Width,height=folded?(small?52:56):playground.Height,arcScale=playground.ArcScale;
             Width=width+16;
             Height=height+16;
             scene.LayoutTransform=Transform.Identity;
@@ -439,26 +389,28 @@ namespace Orbitlet {
             scene.Height=Height;
             surface.Width=width;
             surface.Height=height;
-            surface.CornerRadius=new CornerRadius(small?13:15);
+            surface.CornerRadius=new CornerRadius(small?16:18);
             surface.Effect=new DropShadowEffect {
                 Color=Colors.Black,BlurRadius=14,ShadowDepth=4,Opacity=.12
             };
+            arcs.SetMotion(!reduceMotion&&SystemParameters.ClientAreaAnimation);
             arcs.LayoutTransform=new ScaleTransform(arcScale,arcScale);
             Canvas.SetLeft(arcs,(width-1.5-224*arcScale)/2);
-            Canvas.SetTop(arcs,1);
+            Canvas.SetTop(arcs,playground.ArcTop);
             labels.Width=width-20;
             labels.Height=small?30:34;
             Canvas.SetLeft(labels,(width-1.5-labels.Width)/2);
-            Canvas.SetTop(labels,folded?(height-labels.Height)/2:1+112*arcScale-labels.Height/2);
+            Canvas.SetTop(labels,folded?(height-labels.Height)/2:playground.Center.Y-labels.Height/2);
             fiveCaption.FontSize=weekCaption.FontSize=small?7.5:8.5;
             fiveLabel.FontSize=weekLabel.FontSize=small?11.5:13;
             fiveCaption.Margin=weekCaption.Margin=new Thickness(0,0,small?3:4,0);
-            updated.Width=width-9.5;
-            updated.FontSize=8;
-            Canvas.SetLeft(updated,4);
-            Canvas.SetTop(updated,small?74:84);
+            resetTimes.Width=width-9.5;
+            resetTimes.FontSize=8;
+            Canvas.SetLeft(resetTimes,4);
+            Canvas.SetTop(resetTimes,playground.FooterTop);
+            cat.Configure(width,height,small,folded,!reduceMotion&&SystemParameters.ClientAreaAnimation);
             arcs.Visibility=folded?Visibility.Collapsed:Visibility.Visible;
-            updated.Visibility=folded?Visibility.Collapsed:Visibility.Visible;
+            resetTimes.Visibility=folded?Visibility.Collapsed:Visibility.Visible;
             KeepOnScreen();
         }
         void ShowWidget() {
