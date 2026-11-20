@@ -4,6 +4,9 @@ dist/
 *.pdb
 *.zip
 *.settings
+*.settings.*.tmp
+integrations/qoder/
+integrations/qoder-cn/
 *.log
 preview-url.txt
 binding-diagnostics.json

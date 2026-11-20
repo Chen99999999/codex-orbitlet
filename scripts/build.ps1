@@ -13,11 +13,16 @@ $manifest = Join-Path $repo 'src/Orbitlet/app.manifest'
 & $compiler /nologo /utf8output /codepage:65001 /target:winexe /platform:anycpu /optimize+ /warnaserror+ ('/win32manifest:' + $manifest) ('/out:' + (Join-Path $OutputDirectory 'Orbitlet.exe')) /reference:System.dll /reference:System.Core.dll /reference:System.Xaml.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll $references $sources
 if ($LASTEXITCODE -ne 0) { throw 'Orbitlet build failed.' }
 Copy-Item -LiteralPath (Join-Path $repo 'web/preview.html') -Destination (Join-Path $OutputDirectory 'preview.html') -Force
+New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'integrations') -Force | Out-Null
+foreach ($name in @('qoder-usage.mjs','Enable-QoderQuota.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $repo ('integrations/' + $name)) -Destination (Join-Path $OutputDirectory 'integrations') -Force
+}
 New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'assets') -Force | Out-Null
 foreach ($asset in @('cat-real-atlas.png','cat-real-atlas.json','cat-real-atlas.prompt.txt')) { Copy-Item -LiteralPath (Join-Path $repo ('web/assets/' + $asset)) -Destination (Join-Path $OutputDirectory 'assets') -Force }
 foreach ($name in @('README.md','README.zh-CN.md','LICENSE','PRIVACY.md','SECURITY.md','CONTRIBUTING.md')) { if (Test-Path -LiteralPath (Join-Path $repo $name)) { Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $OutputDirectory -Force } }
 New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'docs/assets') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $repo 'docs/PROVIDERS.md') -Destination (Join-Path $OutputDirectory 'docs/PROVIDERS.md') -Force
 Copy-Item -LiteralPath (Join-Path $repo 'docs/assets/orbitlet.svg') -Destination (Join-Path $OutputDirectory 'docs/assets/orbitlet.svg') -Force
-$launchers = @{ 'Launch.cmd'=''; 'Launch-Standalone.cmd'=' --standalone'; 'Enable-Codex-Follow.cmd'=' --enable-follow'; 'Disable-Codex-Follow.cmd'=' --disable-follow' }
+$launchers = @{ 'Launch.cmd'=''; 'Launch-Standalone.cmd'=' --standalone'; 'Enable-Follow.cmd'=' --enable-follow'; 'Disable-Follow.cmd'=' --disable-follow'; 'Enable-Codex-Follow.cmd'=' --enable-follow'; 'Disable-Codex-Follow.cmd'=' --disable-follow' }
 foreach ($name in $launchers.Keys) { [IO.File]::WriteAllText((Join-Path $OutputDirectory $name),"@echo off`r`nstart `"`" `"%~dp0Orbitlet.exe`"" + $launchers[$name] + "`r`n",[Text.Encoding]::ASCII) }
 Write-Output ('Built: ' + (Join-Path $OutputDirectory 'Orbitlet.exe'))

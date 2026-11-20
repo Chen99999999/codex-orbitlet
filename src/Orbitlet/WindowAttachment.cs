@@ -39,6 +39,7 @@ namespace Orbitlet {
         readonly Func<IntPtr> hostOverride,foregroundOverride;
         readonly int ownPid=Process.GetCurrentProcess().Id;
         readonly Dictionary<int,Tuple<bool,DateTime>> identity=new Dictionary<int,Tuple<bool,DateTime>>();
+        DesktopTarget target=DesktopTargets.All[0];
         IntPtr host;
         DateTime nextScan;
         string lastDiagnostic;
@@ -55,11 +56,18 @@ namespace Orbitlet {
                 return host;
             }
         }
+        internal void SelectTarget(DesktopTarget selected) {
+            if(selected==target)return;
+            Detach();
+            target=selected;
+            identity.Clear();
+            nextScan=DateTime.MinValue;
+        }
         static void SetOwner(IntPtr window,IntPtr owner) {
             if(IntPtr.Size==8)SetOwner64(window,-8,owner);
             else SetOwner32(window,-8,owner.ToInt32());
         }
-        bool IsCodex(IntPtr window) {
+        bool IsTarget(IntPtr window) {
             uint pid;
             GetWindowThreadProcessId(window,out pid);
             if(pid==0||pid==ownPid)return false;
@@ -68,11 +76,7 @@ namespace Orbitlet {
             bool matches=false;
             try {
                 using(var process=Process.GetProcessById((int)pid)) {
-                    if(process.ProcessName.Equals("ChatGPT",StringComparison.OrdinalIgnoreCase)) {
-                        string family=CodexDesktop.Package(process.Id),path=null;
-                        if(string.IsNullOrEmpty(family))path=process.MainModule.FileName;
-                        matches=CodexDesktop.IsDesktopIdentity(process.ProcessName,family,path);
-                    }
+                    matches=target.Matches(process);
                 }
             }
             catch(InvalidOperationException) {
@@ -87,14 +91,14 @@ namespace Orbitlet {
         IntPtr ResolveHost(IntPtr foreground) {
             IntPtr root=GetAncestor(foreground,3);
             if(root==IntPtr.Zero)root=foreground;
-            if(IsCodex(root))return root;
-            if(host!=IntPtr.Zero&&IsWindow(host)&&IsCodex(host))return host;
+            if(IsTarget(root))return root;
+            if(host!=IntPtr.Zero&&IsWindow(host)&&IsTarget(host))return host;
             if(DateTime.UtcNow<nextScan)return IntPtr.Zero;
             nextScan=DateTime.UtcNow.AddSeconds(2);
-            foreach(var process in Process.GetProcessesByName("ChatGPT"))using(process) {
+            foreach(string name in target.Processes)foreach(var process in Process.GetProcessesByName(name))using(process) {
                 try {
                     IntPtr handle=process.MainWindowHandle;
-                    if(handle!=IntPtr.Zero&&IsCodex(handle))return handle;
+                    if(handle!=IntPtr.Zero&&IsTarget(handle))return handle;
                 }
                 catch(InvalidOperationException) {
                 }
@@ -133,7 +137,7 @@ namespace Orbitlet {
             bool changed=candidate!=host;
             if(changed) {
                 host=candidate;
-                if(host!=IntPtr.Zero)SetOwner(own,host);
+                SetOwner(own,host);
             }
             widget.Topmost=false;
             bool exists=host!=IntPtr.Zero&&IsWindow(host)&&IsWindowVisible(host),minimized=exists&&IsIconic(host);
@@ -163,7 +167,7 @@ namespace Orbitlet {
                 bool ownerMatches=host!=IntPtr.Zero&&GetWindow(own,4)==host;
                 bool inside=bounds.HasValue&&bounds.Value.Contains(new Rect(widget.Left,widget.Top,widget.Width,widget.Height));
                 string state=Json.Encode(new {
-                    bound=true,hostDetected=exists,visible=widget.IsVisible,foregroundAllowed=active,hostMinimized=minimized,ownerMatchesHost=ownerMatches,insideHost=inside
+                    bound=true,target=target.Id,hostDetected=exists,visible=widget.IsVisible,foregroundAllowed=active,hostMinimized=minimized,ownerMatchesHost=ownerMatches,insideHost=inside
                 });
                 if(state!=lastDiagnostic) {
                     lastDiagnostic=state;

@@ -6,11 +6,13 @@ Orbitlet is a local Windows application. It has no telemetry or application-owne
 
 The installed Codex CLI owns authentication. Orbitlet starts a child `codex app-server` process over standard input/output and calls `initialize` and `account/rateLimits/read`. It does not read authentication files, copy tokens, start inference turns, send account emails or consume reset credits.
 
-The CLI may contact OpenAI and manage its own authentication state according to its existing configuration. Orbitlet retains only normalized percentages, reset timestamps and the time/status of the latest read in memory. Raw RPC messages are not saved.
+The CLI may contact OpenAI and manage its own authentication state according to its existing configuration. Qoder's optional SDK adapter delegates sign-in to the CLI or uses the matching personal access token environment variable. API adapters read the configured key from the process or Windows user environment and send it to the selected vendor's fixed HTTPS endpoint. Orbitlet keeps normalized values and the latest sync status in memory.
+
+The opt-in Claude Code status line writes the 5h and 7d quota fields to `claude-usage.settings` beside the app. The helper extracts the fields in memory. It stores neither the rest of the status line payload nor transcript paths.
 
 ## Window attachment
 
-Orbitlet checks the foreground window, official Codex process/package identity and client-window geometry to position its own window and control its own visibility. It does not inspect page content, capture your screen, inject code into Codex or modify the official app.
+Orbitlet checks the foreground window, selected application process identity and client-window geometry to position its own window. The Codex adapter also checks the package identity.
 
 ## Local preview
 

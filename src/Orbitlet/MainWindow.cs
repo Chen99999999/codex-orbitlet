@@ -1,5 +1,4 @@
-// Orbitlet v0.5 · real quota, lifecycle and window attachment
-// Only reads official account/rateLimits/read; never starts inference turns.
+// Orbitlet desktop widget, quota display and window attachment.
 using System;
 using System.IO;
 using System.Globalization;
@@ -36,7 +35,10 @@ namespace Orbitlet {
         double dockRight=20,dockBottom=20;
         WindowAttachment attachment;
         System.Windows.Threading.DispatcherTimer bindingTimer;
-        MenuItem pinMenu;
+        MenuItem pinMenu,lockMenu;
+        DesktopTarget desktopTarget=DesktopTargets.All[0];
+        QuotaSource quotaSource=QuotaSources.All[0];
+        int quotaGeneration;
         bool IsBound {
             get {
                 return bindToCodex&&!Standalone;
@@ -49,10 +51,10 @@ namespace Orbitlet {
         readonly DesktopAbsenceGuard desktopAbsence=new DesktopAbsenceGuard();
         EventWaitHandle closeEvent,detachEvent,attachEvent;
         RegisteredWaitHandle closeWait,detachWait,attachWait;
-        volatile string previewJson="{\"fiveHourRemainingPercent\":null,\"weeklyRemainingPercent\":null,\"updatedAtUtc\":null,\"syncStatus\":\"connecting\",\"source\":\"codex-app-server\"}";
-        string settings=System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"orbitlet.settings");
+        volatile string previewJson;
+        readonly string settings=DesktopTargets.SettingsPath;
         public Companion() {
-            Title="Orbitlet · Codex companion";
+            Title="Orbitlet";
             Width=280;
             Height=278;
             WindowStyle=WindowStyle.None;
@@ -115,7 +117,7 @@ namespace Orbitlet {
             Canvas.SetLeft(resetTimes,13);
             Canvas.SetTop(resetTimes,211);
             layout.Children.Add(resetTimes);
-            AutomationProperties.SetName(surface,"两环额度：外环五小时剩余，内环本周剩余");
+            UpdateProviderDisplay(quotaSource.Empty(),"connecting",null,false);
             surface.MouseLeftButtonDown+=(s,e)=> {
                 if(e.ClickCount==2) {
                     ToggleFold();
@@ -141,13 +143,11 @@ namespace Orbitlet {
             SourceInitialized+=(s,e)=>InitNative();
             Loaded+=async(s,e)=> {
                 ApplySize();
-                arcs.Update(0,0,false);
-                ShowResetTimes(null,null);
                 followTimer=new System.Windows.Threading.DispatcherTimer {
                     Interval=TimeSpan.FromSeconds(2)
                 };
                 followTimer.Tick+=(ss,ee)=> {
-                    if(FollowCodex&&desktopAbsence.Observe(CodexDesktop.IsOpen(),DateTime.UtcNow))Close();
+                    if(FollowCodex&&desktopAbsence.Observe(desktopTarget.IsOpen(),DateTime.UtcNow))Close();
                 };
                 followTimer.Start();
                 try {
@@ -213,33 +213,55 @@ namespace Orbitlet {
         async Task RefreshQuota() {
             if(syncing||closing)return;
             syncing=true;
+            int requested=quotaGeneration;
+            var source=quotaSource;
             try {
-                QuotaSnapshot snapshot=await quotaClient.ReadAsync();
-                if(closing)return;
+                QuotaSnapshot snapshot=await QuotaSources.ReadAsync(source,quotaClient);
+                if(closing||requested!=quotaGeneration)return;
                 lastSnapshot=snapshot;
-                double? five=snapshot.FiveHourRemainingPercent,week=snapshot.WeeklyRemainingPercent;
-                cat.SetQuota(five??50);
-                arcs.Update(five??0,week??0,!reduceMotion&&SystemParameters.ClientAreaAnimation);
-                fiveLabel.Text=Percent(five);
-                weekLabel.Text=Percent(week);
-                fiveLabel.Foreground=Brush("#171B20");
-                weekLabel.Foreground=Brush("#171B20");
-                ShowResetTimes(snapshot,null);
-                previewJson=snapshot.ToJson("ok",null);
-                tray.Text="Orbitlet · 5h "+Percent(five)+" · 本周 "+Percent(week);
-                AutomationProperties.SetName(arcs,"五小时剩余 "+Percent(five)+"，本周剩余 "+Percent(week)+"，官方 Codex 实时额度");
+                UpdateProviderDisplay(snapshot,source.Id=="none"?"disabled":"ok",null,true);
             }
             catch(Exception ex) {
-                if(closing)return;
+                if(closing||requested!=quotaGeneration)return;
                 string error=ex is QuotaReadException?ex.Message:"连接暂不可用，请稍后重试";
-                ShowResetTimes(lastSnapshot,error);
-                previewJson=lastSnapshot==null?Json.Encode(new {
-                    fiveHourRemainingPercent=(double?)null,weeklyRemainingPercent=(double?)null,updatedAtUtc=(string)null,syncStatus="error",error=error,source="codex-app-server"
-                }):lastSnapshot.ToJson("error",error);
+                if(source.Id=="claude")lastSnapshot=null;
+                UpdateProviderDisplay(lastSnapshot??source.Empty(),"error",error,false);
             }
             finally {
-                syncing=false;
+                if(requested==quotaGeneration)syncing=false;
             }
+        }
+        async Task SelectQuota(QuotaSource selected) {
+            if(selected==quotaSource)return;
+            quotaSource=selected;
+            quotaGeneration++;
+            syncing=false;
+            lastSnapshot=null;
+            UpdateProviderDisplay(selected.Empty(),"connecting",null,false);
+            SaveSettings();
+            await RefreshQuota();
+        }
+        void UpdateProviderDisplay(QuotaSnapshot snapshot,string status,string error,bool animate) {
+            var first=snapshot.FirstPercent;
+            var second=snapshot.SecondPercent;
+            cat.SetQuota(first??50);
+            arcs.Update(first??0,second??0,animate&&!reduceMotion&&SystemParameters.ClientAreaAnimation);
+            bool disabled=snapshot.Source=="none";
+            fiveCaption.Text=disabled?"":snapshot.OuterLabel;
+            weekCaption.Text=disabled?"":snapshot.InnerLabel;
+            fiveLabel.Text=disabled?"":snapshot.OuterAmount??Percent(first);
+            weekLabel.Text=disabled?"":snapshot.InnerAmount??Percent(second);
+            SetValueFontSizes(snapshot);
+            ShowResetTimes(snapshot,error);
+            previewJson=snapshot.ToJson(disabled?"disabled":status,error);
+            string description=snapshot.ProviderName+" · "+fiveCaption.Text+" "+fiveLabel.Text+" · "+weekCaption.Text+" "+weekLabel.Text;
+            AutomationProperties.SetName(surface,description);
+            AutomationProperties.SetName(arcs,description);
+            if(tray!=null)tray.Text="Orbitlet · "+snapshot.ProviderName;
+        }
+        void SetValueFontSizes(QuotaSnapshot snapshot) {
+            fiveLabel.FontSize=snapshot!=null&&snapshot.OuterAmount!=null?(small?8:9):(small?11.5:13);
+            weekLabel.FontSize=snapshot!=null&&snapshot.InnerAmount!=null?(small?8:9):(small?11.5:13);
         }
         static string ResetTime(long? seconds,string format,string unknown) {
             if(!seconds.HasValue||seconds.Value<0||seconds.Value>253402300799)return unknown;
@@ -251,10 +273,20 @@ namespace Orbitlet {
             }
         }
         void ShowResetTimes(QuotaSnapshot snapshot,string error) {
-            long? five=snapshot==null?(long?)null:snapshot.FiveHourResetsAt;
-            long? week=snapshot==null?(long?)null:snapshot.WeeklyResetsAt;
-            resetTimes.Text="5h "+ResetTime(five,"HH:mm","--:--")+"\n本周 "+ResetTime(week,"MM/dd","--/--");
-            string description="5h 结束于 "+ResetTime(five,"yyyy/MM/dd HH:mm","未知")+"\n本周结束于 "+ResetTime(week,"yyyy/MM/dd HH:mm","未知")+"（本地时间）"+(error==null?"":"\n"+error);
+            long? first=snapshot.FirstEnd;
+            long? second=snapshot.SecondEnd;
+            if(snapshot.ShowsTimes) {
+                resetTimes.Text=snapshot.OuterLabel+" "+ResetTime(first,"HH:mm","--:--")+"\n"+snapshot.InnerLabel+" "+ResetTime(second,"MM/dd","--/--");
+            } else {
+                string end=first.HasValue?ResetTime(first,"MM/dd","--"):second.HasValue?ResetTime(second,"MM/dd","--"):null;
+                resetTimes.Text=snapshot.ProviderName+(end!=null?"\n"+(snapshot.Source.StartsWith("qoder",StringComparison.Ordinal)?"到期 ":"重置 ")+end:error!=null?"\n未连接":"");
+            }
+            string description=snapshot.ProviderName;
+            if(snapshot.ShowsTimes||first.HasValue||second.HasValue) {
+                description+="\n"+snapshot.OuterLabel+" 结束于 "+ResetTime(first,"yyyy/MM/dd HH:mm","未知")+"\n"+snapshot.InnerLabel+" 结束于 "+ResetTime(second,"yyyy/MM/dd HH:mm","未知")+"（本地时间）";
+            }
+            if(snapshot.Detail!=null)description+="\n"+snapshot.Detail;
+            if(error!=null)description+="\n"+error;
             resetTimes.ToolTip=description;
             AutomationProperties.SetName(resetTimes,description);
         }
@@ -286,18 +318,30 @@ namespace Orbitlet {
                 SaveSettings();
             };
             menu.Items.Add(pinMenu);
-            var locked=new MenuItem {
-                Header="锁定在 Codex 窗口",IsCheckable=true,IsChecked=IsBound
+            lockMenu=new MenuItem {
+                Header="锁定在目标窗口",IsCheckable=true,IsChecked=IsBound
             };
-            locked.Click+=(s,e)=> {
-                bindToCodex=locked.IsChecked;
+            lockMenu.Click+=(s,e)=> {
+                bindToCodex=lockMenu.IsChecked;
                 Standalone=false;
                 ApplyAttachment();
                 SaveSettings();
             };
-            menu.Items.Add(locked);
+            menu.Items.Add(lockMenu);
+            var targetOptions=new MenuItem { Header="跟随窗口" };
+            foreach(var target in DesktopTargets.All)targetOptions.Items.Add(Item(target.Name,()=>SelectDesktop(target)));
+            targetOptions.SubmenuOpened+=(s,e)=> {
+                for(int i=0;i<targetOptions.Items.Count;i++)((MenuItem)targetOptions.Items[i]).IsChecked=desktopTarget==DesktopTargets.All[i];
+            };
+            menu.Items.Add(targetOptions);
+            var sourceOptions=new MenuItem { Header="额度来源" };
+            foreach(var source in QuotaSources.All)sourceOptions.Items.Add(Item(source.Name,async()=>await SelectQuota(source)));
+            sourceOptions.SubmenuOpened+=(s,e)=> {
+                for(int i=0;i<sourceOptions.Items.Count;i++)((MenuItem)sourceOptions.Items[i]).IsChecked=quotaSource==QuotaSources.All[i];
+            };
+            menu.Items.Add(sourceOptions);
             var follow=new MenuItem {
-                Header="随 Codex 启动 / 关闭",IsCheckable=true,IsChecked=FollowRegistration.Enabled
+                Header="随目标应用启动 / 关闭",IsCheckable=true,IsChecked=FollowRegistration.Enabled
             };
             follow.Click+=(s,e)=> {
                 try {
@@ -343,7 +387,7 @@ namespace Orbitlet {
             }));
             surface.ContextMenu=menu;
             tray=new Forms.NotifyIcon {
-                Text="Orbitlet · 正在同步额度"
+                Text="Orbitlet · "+quotaSource.Name
             };
             using(var bmp=new Drawing.Bitmap(64,64)) {
                 using(var g=Drawing.Graphics.FromImage(bmp)) {
@@ -367,6 +411,18 @@ namespace Orbitlet {
             tray.DoubleClick+=(s,e)=>Dispatcher.Invoke(new Action(ShowWidget));
             var trayMenu=new Forms.ContextMenuStrip();
             trayMenu.Items.Add("显示 / 隐藏",null,(s,e)=>Dispatcher.Invoke(new Action(ToggleVisible)));
+            var trayTargets=new Forms.ToolStripMenuItem("跟随窗口");
+            foreach(var target in DesktopTargets.All)trayTargets.DropDownItems.Add(target.Name,null,(s,e)=>Dispatcher.Invoke(new Action(()=>SelectDesktop(target))));
+            trayTargets.DropDownOpening+=(s,e)=> {
+                for(int i=0;i<trayTargets.DropDownItems.Count;i++)((Forms.ToolStripMenuItem)trayTargets.DropDownItems[i]).Checked=desktopTarget==DesktopTargets.All[i];
+            };
+            trayMenu.Items.Add(trayTargets);
+            var traySources=new Forms.ToolStripMenuItem("额度来源");
+            foreach(var source in QuotaSources.All)traySources.DropDownItems.Add(source.Name,null,(s,e)=>Dispatcher.Invoke(new Action(async()=>await SelectQuota(source))));
+            traySources.DropDownOpening+=(s,e)=> {
+                for(int i=0;i<traySources.DropDownItems.Count;i++)((Forms.ToolStripMenuItem)traySources.DropDownItems[i]).Checked=quotaSource==QuotaSources.All[i];
+            };
+            trayMenu.Items.Add(traySources);
             trayMenu.Items.Add("立即刷新",null,(s,e)=>Dispatcher.Invoke(new Action(async()=>await RefreshQuota())));
             trayMenu.Items.Add("打开实时预览",null,(s,e)=>Dispatcher.Invoke(new Action(OpenPreview)));
             trayMenu.Items.Add("退出",null,(s,e)=>Dispatcher.Invoke(new Action(()=> {
@@ -374,6 +430,15 @@ namespace Orbitlet {
                 Close();
             })));
             tray.ContextMenuStrip=trayMenu;
+        }
+        void SelectDesktop(DesktopTarget target) {
+            desktopTarget=target;
+            bindToCodex=true;
+            Standalone=false;
+            desktopAbsence.Observe(true,DateTime.UtcNow);
+            if(attachment!=null)attachment.SelectTarget(target);
+            ApplyAttachment();
+            SaveSettings();
         }
         void ToggleFold() {
             folded=!folded;
@@ -402,7 +467,7 @@ namespace Orbitlet {
             Canvas.SetLeft(labels,(width-1.5-labels.Width)/2);
             Canvas.SetTop(labels,folded?(height-labels.Height)/2:playground.Center.Y-labels.Height/2);
             fiveCaption.FontSize=weekCaption.FontSize=small?7.5:8.5;
-            fiveLabel.FontSize=weekLabel.FontSize=small?11.5:13;
+            SetValueFontSizes(lastSnapshot);
             fiveCaption.Margin=weekCaption.Margin=new Thickness(0,0,small?3:4,0);
             resetTimes.Width=width-9.5;
             resetTimes.FontSize=8;
@@ -434,6 +499,7 @@ namespace Orbitlet {
         void ApplyAttachment() {
             if(attachment==null||closing)return;
             if(pinMenu!=null)pinMenu.IsEnabled=!IsBound;
+            if(lockMenu!=null)lockMenu.IsChecked=IsBound;
             if(IsBound)attachment.Apply(manuallyHidden,dragging,dockRight,dockBottom);
             else {
                 attachment.Detach();
@@ -461,6 +527,7 @@ namespace Orbitlet {
             });
             if(!RegisterHotKey(handle,HotkeyId,0x4003,0x4F))tray.Text="Orbitlet · 热键被占用 · 双击托盘恢复";
             attachment=new WindowAttachment(this);
+            attachment.SelectTarget(desktopTarget);
             bindingTimer=new System.Windows.Threading.DispatcherTimer {
                 Interval=TimeSpan.FromMilliseconds(150)
             };
@@ -496,6 +563,8 @@ namespace Orbitlet {
                     if(p[0]=="dockRight"&&double.TryParse(p[1],NumberStyles.Float,CultureInfo.InvariantCulture,out value))dockRight=value;
                     if(p[0]=="dockBottom"&&double.TryParse(p[1],NumberStyles.Float,CultureInfo.InvariantCulture,out value))dockBottom=value;
                     if(p[0]=="bindCodex")bindToCodex=p[1]=="1";
+                    if(p[0]=="desktopTarget")desktopTarget=DesktopTargets.Find(p[1])??DesktopTargets.All[0];
+                    if(p[0]=="quotaSource")quotaSource=QuotaSources.Find(p[1])??QuotaSources.All[0];
                     if(p[0]=="small")small=p[1]=="1";
                     if(p[0]=="topmost")standaloneTopmost=p[1]=="1";
                     if(p[0]=="reduceMotion")reduceMotion=p[1]=="1";
@@ -507,10 +576,13 @@ namespace Orbitlet {
             }
         }
         void SaveSettings() {
+            string temporary=settings+".new.tmp";
             try {
-                File.WriteAllLines(settings,new[] {
-                    "left="+Left.ToString(CultureInfo.InvariantCulture),"top="+Top.ToString(CultureInfo.InvariantCulture),"dockRight="+dockRight.ToString(CultureInfo.InvariantCulture),"dockBottom="+dockBottom.ToString(CultureInfo.InvariantCulture),"bindCodex="+(bindToCodex?"1":"0"),"small="+(small?"1":"0"),"topmost="+(standaloneTopmost?"1":"0"),"reduceMotion="+(reduceMotion?"1":"0")
+                File.WriteAllLines(temporary,new[] {
+                    "left="+Left.ToString(CultureInfo.InvariantCulture),"top="+Top.ToString(CultureInfo.InvariantCulture),"dockRight="+dockRight.ToString(CultureInfo.InvariantCulture),"dockBottom="+dockBottom.ToString(CultureInfo.InvariantCulture),"bindCodex="+(bindToCodex?"1":"0"),"small="+(small?"1":"0"),"topmost="+(standaloneTopmost?"1":"0"),"reduceMotion="+(reduceMotion?"1":"0"),"desktopTarget="+desktopTarget.Id,"quotaSource="+quotaSource.Id
                 });
+                if(File.Exists(settings))File.Replace(temporary,settings,null);
+                else File.Move(temporary,settings);
             }
             catch(IOException) {
             }
@@ -521,7 +593,7 @@ namespace Orbitlet {
             Directory.CreateDirectory(CaptureDirectory);
             bool originalMotion=reduceMotion,originalSmall=small,originalFold=folded;
             reduceMotion=true;
-            if(lastSnapshot!=null)arcs.Update(lastSnapshot.FiveHourRemainingPercent??0,lastSnapshot.WeeklyRemainingPercent??0,false);
+            if(lastSnapshot!=null)arcs.Update(lastSnapshot.FirstPercent??0,lastSnapshot.SecondPercent??0,false);
             small=false;
             folded=false;
             ApplySize();
@@ -549,6 +621,10 @@ namespace Orbitlet {
             using(var file=File.Create(System.IO.Path.Combine(CaptureDirectory,name)))encoder.Save(file);
         }
         [STAThread]public static void Main(string[] args) {
+            if(Array.IndexOf(args,"--claude-statusline")>=0) {
+                QuotaSources.IngestClaudeStatusLine();
+                return;
+            }
             foreach(var arg in args) {
                 if(arg=="--standalone") {
                     Standalone=true;
@@ -578,10 +654,13 @@ namespace Orbitlet {
                     return;
                 }
             }
+            string sourceId=Array.Find(args,arg=>arg.StartsWith("--provider=",StringComparison.Ordinal));
+            var source=sourceId==null?QuotaSources.All[0]:QuotaSources.Find(sourceId.Substring(11));
             foreach(var arg in args)if(arg.StartsWith("--sync-once=")) {
                 using(var client=new CodexQuotaClient()) {
                     try {
-                        var snapshot=client.ReadAsync().GetAwaiter().GetResult();
+                        if(source==null)throw new QuotaReadException("未知额度来源");
+                        var snapshot=QuotaSources.ReadAsync(source,client).GetAwaiter().GetResult();
                         File.WriteAllText(arg.Substring(12),snapshot.ToJson("ok",null));
                     }
                     catch(Exception ex) {

@@ -15,25 +15,26 @@ namespace Orbitlet {
         public double? FiveHourRemainingPercent,WeeklyRemainingPercent;
         public DateTime UpdatedAtUtc;
         public long? FiveHourResetsAt,WeeklyResetsAt;
+        public string Source="codex-app-server";
+        public string OuterLabel="5h",InnerLabel="本周",ProviderName="Codex";
+        public double? OuterPercent,InnerPercent;
+        public long? OuterEndsAt,InnerEndsAt;
+        public string OuterAmount,InnerAmount,Detail;
+        public bool TimeWindows;
+        public double? FirstPercent { get { return OuterPercent??FiveHourRemainingPercent; } }
+        public double? SecondPercent { get { return InnerPercent??WeeklyRemainingPercent; } }
+        public long? FirstEnd { get { return OuterEndsAt??FiveHourResetsAt; } }
+        public long? SecondEnd { get { return InnerEndsAt??WeeklyResetsAt; } }
+        public bool ShowsTimes { get { return TimeWindows||Source=="codex-app-server"; } }
         public string ToJson(string status,string error) {
-            return Json.Encode(new Dictionary<string,object> {
-                {
-                    "fiveHourRemainingPercent",FiveHourRemainingPercent
-                }, {
-                    "weeklyRemainingPercent",WeeklyRemainingPercent
-                }, {
-                    "updatedAtUtc",UpdatedAtUtc.ToString("o",CultureInfo.InvariantCulture)
-                }, {
-                    "fiveHourResetsAt",FiveHourResetsAt
-                }, {
-                    "weeklyResetsAt",WeeklyResetsAt
-                }, {
-                    "syncStatus",status
-                }, {
-                    "error",error
-                }, {
-                    "source","codex-app-server"
-                }
+            return Json.Encode(new {
+                fiveHourRemainingPercent=FiveHourRemainingPercent,weeklyRemainingPercent=WeeklyRemainingPercent,
+                fiveHourResetsAt=FiveHourResetsAt,weeklyResetsAt=WeeklyResetsAt,
+                updatedAtUtc=UpdatedAtUtc==default(DateTime)?null:UpdatedAtUtc.ToString("o",CultureInfo.InvariantCulture),
+                syncStatus=status,error=error,source=Source,provider=ProviderName,
+                outerLabel=OuterLabel,innerLabel=InnerLabel,outerPercent=FirstPercent,innerPercent=SecondPercent,
+                outerEndsAt=FirstEnd,innerEndsAt=SecondEnd,outerAmount=OuterAmount,innerAmount=InnerAmount,detail=Detail,
+                timeWindows=ShowsTimes
             });
         }
     }
@@ -140,7 +141,7 @@ namespace Orbitlet {
                     process.StandardInput.AutoFlush=true;
                     await Request("initialize",new {
                         clientInfo=new {
-                            name="quiet_orbit",title="Orbitlet",version="0.6.0"
+                            name="quiet_orbit",title="Orbitlet",version="0.7.0"
                         }
                     }).ConfigureAwait(false);
                     Send(new {

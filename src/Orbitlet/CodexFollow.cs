@@ -7,6 +7,72 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 namespace Orbitlet {
+    internal sealed class DesktopTarget {
+        public readonly string Id,Name;
+        public readonly string[] Processes;
+        public DesktopTarget(string id,string name,params string[] processes) {
+            Id=id;
+            Name=name;
+            Processes=processes;
+        }
+        public bool MatchesName(string name) {
+            foreach(string process in Processes)if(string.Equals(process,name,StringComparison.OrdinalIgnoreCase))return true;
+            return false;
+        }
+        public bool Matches(Process process) {
+            if(!MatchesName(process.ProcessName))return false;
+            if(Id!="codex")return true;
+            string family=CodexDesktop.Package(process.Id);
+            string path=string.IsNullOrEmpty(family)?process.MainModule.FileName:null;
+            return CodexDesktop.IsDesktopIdentity(process.ProcessName,family,path);
+        }
+        public bool? IsOpen() {
+            if(Id=="codex")return CodexDesktop.IsOpen();
+            bool unknown=false;
+            int session=Process.GetCurrentProcess().SessionId;
+            foreach(string name in Processes)foreach(var process in Process.GetProcessesByName(name))using(process) {
+                try {
+                    if(process.SessionId==session&&process.MainWindowHandle!=IntPtr.Zero)return true;
+                }
+                catch(InvalidOperationException) {}
+                catch(System.ComponentModel.Win32Exception) { unknown=true; }
+            }
+            return unknown?(bool?)null:false;
+        }
+    }
+
+    internal static class DesktopTargets {
+        public static readonly DesktopTarget[] All={
+            new DesktopTarget("codex","Codex","ChatGPT"),
+            new DesktopTarget("qoder","Qoder","Qoder","QoderCN"),
+            new DesktopTarget("qoder-work","QoderWork","QoderWork","QoderWorkCN"),
+            new DesktopTarget("claude","Claude Desktop","Claude"),
+            new DesktopTarget("cursor","Cursor","Cursor"),
+            new DesktopTarget("windsurf","Windsurf","Windsurf"),
+            new DesktopTarget("vscode","VS Code","Code","Code - Insiders"),
+            new DesktopTarget("trae","TRAE","Trae","Trae CN"),
+            new DesktopTarget("kiro","Kiro","Kiro"),
+            new DesktopTarget("antigravity","Antigravity","Antigravity"),
+            new DesktopTarget("zed","Zed","zed"),
+            new DesktopTarget("terminal","Windows Terminal","WindowsTerminal","WindowsTerminalPreview")
+        };
+        public static string SettingsPath { get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"orbitlet.settings"); } }
+        public static DesktopTarget Find(string id) {
+            foreach(var target in All)if(target.Id==id)return target;
+            return null;
+        }
+        public static DesktopTarget ReadSelected() {
+            try {
+                foreach(var line in File.ReadLines(SettingsPath))
+                    if(line.StartsWith("desktopTarget=",StringComparison.Ordinal))
+                        return Find(line.Substring("desktopTarget=".Length))??All[0];
+            }
+            catch(IOException) {}
+            catch(UnauthorizedAccessException) {}
+            return All[0];
+        }
+    }
+
     public static class CodexDesktop {
         const string Family="OpenAI.Codex_2p2nqsd0c76g0";
         [DllImport("kernel32.dll",SetLastError=true)]static extern IntPtr OpenProcess(uint access,bool inherit,int pid);
@@ -117,10 +183,16 @@ namespace Orbitlet {
                 if(!created)return;
                 using(var stop=new EventWaitHandle(false,EventResetMode.ManualReset,StopEvent)) {
                     var gate=new DesktopLaunchGate();
+                    var target=DesktopTargets.ReadSelected();
                     Process child=null;
                     bool rebind=false;
                     do {
-                        bool? open=CodexDesktop.IsOpen();
+                        var selected=DesktopTargets.ReadSelected();
+                        if(selected!=target) {
+                            target=selected;
+                            gate=new DesktopLaunchGate();
+                        }
+                        bool? open=target.IsOpen();
                         bool launch=gate.Observe(open,DateTime.UtcNow);
                         if(child!=null&&child.HasExited) {
                             rebind=child.ExitCode==42;
@@ -177,7 +249,7 @@ namespace Orbitlet {
                 Set(shortcut,"Arguments","--watch-codex");
                 Set(shortcut,"WorkingDirectory",AppDomain.CurrentDomain.BaseDirectory);
                 Set(shortcut,"WindowStyle",7);
-                Set(shortcut,"Description","Orbitlet：随 Codex 桌面窗口启动和退出");
+                Set(shortcut,"Description","Orbitlet：随选定的桌面应用启动和退出");
                 Invoke(shortcut,"Save");
             }
             finally {
@@ -223,7 +295,7 @@ namespace Orbitlet {
         }
         public static object Status() {
             return new {
-                enabled=Enabled,desktopOpen=CodexDesktop.IsOpen(),watcherRunning=CodexFollower.IsRunning(CodexFollower.WatcherMutex),widgetRunning=CodexFollower.IsRunning(CodexFollower.WidgetMutex),startupShortcut=ShortcutPath
+                enabled=Enabled,desktopOpen=DesktopTargets.ReadSelected().IsOpen(),watcherRunning=CodexFollower.IsRunning(CodexFollower.WatcherMutex),widgetRunning=CodexFollower.IsRunning(CodexFollower.WidgetMutex),startupShortcut=ShortcutPath
             };
         }
     }

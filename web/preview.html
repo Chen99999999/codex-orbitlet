@@ -25,7 +25,7 @@
 </g>
 <path id="catContact" fill="none" stroke="#b7cfde" stroke-opacity=".7" stroke-width="15" stroke-linecap="round" aria-hidden="true"/>
 </svg>
-<div class="values"><div class="value-row"><span class="label">5h</span><span id="fiveValue" class="value">--</span></div><div class="value-row"><span class="label week-label">本周</span><span id="weekValue" class="value week-value">--</span></div></div>
+<div class="values"><div class="value-row"><span id="fiveLabel" class="label">5h</span><span id="fiveValue" class="value">--</span></div><div class="value-row"><span id="weekLabel" class="label week-label">本周</span><span id="weekValue" class="value week-value">--</span></div></div>
 <div id="resetTimes" class="reset-times"><div id="fiveReset">5h --:--</div><div id="weekReset">本周 --/--</div></div></section>
 <div id="menu" class="menu" role="menu" aria-label="桌面伴侣设置"><button id="refresh" role="menuitem">刷新显示</button><button id="size" role="menuitem">小号 / 标准</button><button id="fold" role="menuitem">折叠 / 展开</button><button id="hide" role="menuitem">隐藏</button></div><button class="restore" id="restore" aria-label="恢复额度小组件">◌</button>
 <script>
@@ -61,31 +61,42 @@ function resetDate(input){
  const date=new Date(input*1000);return Number.isNaN(date.getTime())?null:date;
 }
 function update(data){
+ const switched=last?.source!==data.source;
  last=data;
- rings.forEach(ring=>{
-  const key=ring.key,input=data[key==='five'?'fiveHourRemainingPercent':'weeklyRemainingPercent'];
+ const captions=[data.outerLabel??'5h',data.innerLabel??'本周'],amounts=[data.outerAmount,data.innerAmount];
+ const percents=[data.outerPercent??data.fiveHourRemainingPercent,data.innerPercent??data.weeklyRemainingPercent];
+ const provider=data.provider??'Codex',disabled=data.syncStatus==='disabled';
+ rings.forEach((ring,index)=>{
+  const key=ring.key,input=percents[index];
   const value=typeof input==='number'&&Number.isFinite(input)?Math.max(0,Math.min(100,input)):null;
-  const now=performance.now();if(ring.target!==(value??0)||ring.known!==(value!==null)){ring.from=sample(ring,now);ring.target=value??0;ring.start=now;ring.known=value!==null;}
-  $(key+'Value').textContent=value===null?'--':Math.round(value)+'%';
+  const now=performance.now();
+  if(switched||ring.target!==(value??0)||ring.known!==(value!==null)){
+   ring.from=switched?0:sample(ring,now);ring.target=value??0;ring.start=now;ring.known=value!==null;
+  }
+  $(key+'Label').textContent=disabled?'':captions[index];
+  $(key+'Value').textContent=disabled?'':amounts[index]??(value===null?'--':Math.round(value)+'%');
+  $(key+'Value').style.fontSize=amounts[index]?'9px':'';
   const tone=value!==null&&value<=10?'#e3aaa1':value!==null&&value<=20?'#ddbf9d':key==='five'?'#282e35':'#a1aab4';$(key+'Arc').style.stroke=tone;$(key+'Value').style.color='';
  });
- cat.quota=typeof data.fiveHourRemainingPercent==='number'?data.fiveHourRemainingPercent:50;
+ cat.quota=typeof percents[0]==='number'?percents[0]:50;
  resumeFlow();
- const fiveEnd=resetDate(data.fiveHourResetsAt),weekEnd=resetDate(data.weeklyResetsAt);
- $('fiveReset').textContent='5h '+(fiveEnd?fiveEnd.toLocaleTimeString('zh-CN',{hour12:false,hourCycle:'h23',hour:'2-digit',minute:'2-digit'}):'--:--');
- $('weekReset').textContent='本周 '+(weekEnd?String(weekEnd.getMonth()+1).padStart(2,'0')+'/'+String(weekEnd.getDate()).padStart(2,'0'):'--/--');
+ const fiveEnd=resetDate(data.outerEndsAt??data.fiveHourResetsAt),weekEnd=resetDate(data.innerEndsAt??data.weeklyResetsAt);
+ const shortDate=date=>date?String(date.getMonth()+1).padStart(2,'0')+'/'+String(date.getDate()).padStart(2,'0'):'--/--';
+ const hasTimeWindows=data.timeWindows!==false;
+ $('fiveReset').textContent=hasTimeWindows?captions[0]+' '+(fiveEnd?fiveEnd.toLocaleTimeString('zh-CN',{hourCycle:'h23',hour:'2-digit',minute:'2-digit'}):'--:--'):provider;
+ $('weekReset').textContent=hasTimeWindows?captions[1]+' '+shortDate(weekEnd):(fiveEnd||weekEnd)?(data.source?.startsWith('qoder')?'到期 ':'重置 ')+shortDate(fiveEnd??weekEnd):data.error?'未连接':'';
  const fullTime=date=>date?date.toLocaleString('zh-CN',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'未知';
- const ending='5h 结束于 '+fullTime(fiveEnd)+'，本周结束于 '+fullTime(weekEnd);
- $('resetTimes').title=ending+'（本地时间）'+(data.error?'\n'+data.error:'');
+ const ending=captions[0]+' 结束于 '+fullTime(fiveEnd)+'，'+captions[1]+' 结束于 '+fullTime(weekEnd);
+ $('resetTimes').title=provider+(hasTimeWindows||fiveEnd||weekEnd?'\n'+ending+'（本地时间）':'')+(data.detail?'\n'+data.detail:'')+(data.error?'\n'+data.error:'');
  $('resetTimes').setAttribute('aria-label',$('resetTimes').title);
- widget.setAttribute('aria-label',`官方 Codex 额度：5 小时剩余 ${$('fiveValue').textContent}，本周剩余 ${$('weekValue').textContent}。${ending}。拖动移动，右键菜单。`);
+ widget.setAttribute('aria-label',disabled?`${provider}。拖动移动，右键菜单。`:`${provider} 额度：${captions[0]} ${$('fiveValue').textContent}，${captions[1]} ${$('weekValue').textContent}。拖动移动，右键菜单。`);
 }
 async function sync(){
  if(busy)return;
  if(location.protocol==='file:'){update({syncStatus:'error',error:'请运行 Orbitlet.exe，并从右键菜单打开实时预览。'});return;}
  busy=true;const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000);
  try{const response=await fetch('/api/quota',{cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('unavailable');update(await response.json());}
- catch{update({...last,syncStatus:'error',error:'本地连接已断开；请确认 Orbitlet 正在运行。'});}
+ catch{update({...last,syncStatus:last?.syncStatus==='disabled'?'disabled':'error',error:'本地连接已断开；请确认 Orbitlet 正在运行。'});}
  finally{clearTimeout(timeout);busy=false;}
 }
 function close(){menu.classList.remove('open')}
